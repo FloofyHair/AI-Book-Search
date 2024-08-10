@@ -14,47 +14,53 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
 with open('vectorized_data.pkl', 'rb') as f:
     vectorized_data = pickle.load(f)
 
-def search(query, top_n_scenes=5):
+def search(query, top_n_chapters=5):
     # Vectorize the query
     query_vector = model.encode(query)
 
-    # Compare query to each scene
-    scene_similarities = []
-    for scene_index, scene in enumerate(vectorized_data, start=1):
-        similarity = cosine_similarity([query_vector], [scene['scene_vector']])[0][0]
-        scene_similarities.append((scene_index, similarity))
+    # Compare query to each chapter
+    chapter_similarities = []
+    for chapter_index, chapter in enumerate(vectorized_data, start=1):
+        similarity = cosine_similarity([query_vector], [chapter['chapter_vector']])[0][0]
+        chapter_similarities.append((chapter_index, similarity))
 
-    # Get top N scenes
-    top_n_scenes = sorted(scene_similarities, key=lambda x: x[1], reverse=True)[:top_n_scenes]
+    # Get top N chapters
+    top_n_chapters = sorted(chapter_similarities, key=lambda x: x[1], reverse=True)[:top_n_chapters]
 
     results = []
-    for scene_index, scene_similarity in top_n_scenes:
-        scene = vectorized_data[scene_index - 1]
+    for chapter_index, chapter_similarity in top_n_chapters:
+        chapter = vectorized_data[chapter_index - 1]
         
-        # Compare query to each sentence in the scene
-        colored_text = color_text(scene['scene_text'], scene['sentences'], query_vector)
+        # Compare query to each paragraph in the chapter
+        colored_text = color_text(chapter['chapter_text'], chapter['paragraphs'], query_vector)
         
         results.append({
-            'scene_number': scene_index,
-            'scene_similarity': scene_similarity,
+            'chapter_number': chapter_index,
+            'chapter_similarity': chapter_similarity,
             'colored_text': colored_text
         })
 
     return results
 
-def color_text(text, sentences, query_vector):
-    colored_sentences = []
-    for sentence, sentence_vector in sentences:
-        similarity = cosine_similarity([query_vector], [sentence_vector])[0][0]
+def color_text(text, paragraphs, query_vector):
+    colored_paragraphs = []
+    for paragraph in paragraphs:
+        similarity = cosine_similarity([query_vector], [paragraph['paragraph_vector']])[0][0]
         color = get_color_for_similarity(similarity)
-        colored_sentences.append((sentence, color))
+        colored_paragraphs.append((paragraph['paragraph_text'], color))
     
-    # Sort sentences by length (longest first) to avoid issues with substrings
-    colored_sentences.sort(key=lambda x: len(x[0]), reverse=True)
+    # Sort paragraphs by length (longest first) to avoid issues with substrings
+    colored_paragraphs.sort(key=lambda x: len(x[0]), reverse=True)
     
-    # Replace each sentence with its colored version
-    for sentence, color in colored_sentences:
-        text = text.replace(sentence, f'<span style="color: {color};">{sentence}</span>')
+    # Replace each paragraph with its colored version
+    for paragraph, color in colored_paragraphs:
+        escaped_paragraph = re.escape(paragraph)
+        text = re.sub(
+            escaped_paragraph,
+            f'<div style="color: {color};">{paragraph}</div>',
+            text,
+            flags=re.DOTALL
+        )
     
     return text
 
@@ -87,9 +93,21 @@ def index():
                 padding: 20px; 
                 background-color: #1e1e1e; 
                 color: #e0e0e0;
+                margin: 0;
             }
-            h1 { color: #bb86fc; }
-            form { margin-bottom: 20px; }
+            .container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 0 20px;
+            }
+            h1 { 
+                color: #bb86fc; 
+                text-align: center;
+            }
+            form { 
+                margin-bottom: 20px; 
+                text-align: center;
+            }
             input[type="text"] { 
                 width: 300px; 
                 padding: 10px; 
@@ -105,19 +123,19 @@ def index():
                 border: none; 
                 cursor: pointer;
             }
-            .scene { 
+            .chapter { 
                 margin-bottom: 20px; 
                 border: 1px solid #444; 
                 padding: 15px; 
                 background-color: #2d2d2d;
-                margin-left: 25vw;
-                margin-right: 25vw;
+                width: 100%;
+                box-sizing: border-box;
             }
-            .scene h2 { 
+            .chapter h2 { 
                 margin-top: 0; 
                 color: #03dac6;
             }
-            .scene-similarity {
+            .chapter-similarity {
                 color: #03dac6;
                 font-size: 20px;
                 font-weight: 600;
@@ -125,20 +143,22 @@ def index():
         </style>
     </head>
     <body>
-        <h1>Book Search</h1>
-        <form method="post">
-            <input type="text" name="query" placeholder="Enter your search query" required>
-            <input type="submit" value="Search">
-        </form>
-        {% if results %}
-            {% for result in results %}
-                <div class="scene">
-                    <h2>Scene {{ result['scene_number'] }}</h2>
-                    <p>Scene similarity: <span class="scene-similarity">{{ "%.4f"|format(result['scene_similarity']) }}</span></p>
-                    <p>{{ result['colored_text']|safe }}</p>
-                </div>
-            {% endfor %}
-        {% endif %}
+        <div class="container">
+            <h1>Book Search</h1>
+            <form method="post">
+                <input type="text" name="query" placeholder="Enter your search query" required>
+                <input type="submit" value="Search">
+            </form>
+            {% if results %}
+                {% for result in results %}
+                    <div class="chapter">
+                        <h2>Chapter {{ result['chapter_number'] }}</h2>
+                        <p>Chapter similarity: <span class="chapter-similarity">{{ "%.4f"|format(result['chapter_similarity']) }}</span></p>
+                        <p>{{ result['colored_text']|safe }}</p>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
     </body>
     </html>
     ''', results=results)
