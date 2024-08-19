@@ -4,15 +4,31 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import pickle
 import re
+from aerospike_vector_search import Client, types
+
+HOST = "34.136.186.255"
+PORT = 5000
+seeds = types.HostPort(host=HOST, port=PORT)
+client = Client(seeds=seeds)
 
 app = Flask(__name__)
 
 # Load the model
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
+def load_vectorized_data():
+    # Load vectorized data from Aerospike
+    vectorized_data = []
+    # Assuming you have a method to fetch data from Aerospike
+    # Replace 'your_namespace' and 'your_set' with actual values
+    records = client.query('your_namespace', 'your_set').results()
+    for record in records:
+        vectorized_data.append(record)  # Adjust based on your record structure
+    return vectorized_data
+
 # Load the vectorized data
-with open('vectorized_data.pkl', 'rb') as f:
-    vectorized_data = pickle.load(f)
+vectorized_data = load_vectorized_data()
+
 
 def search(query, top_n_chapters=5):
     # Vectorize the query
