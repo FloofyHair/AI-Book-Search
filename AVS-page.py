@@ -66,8 +66,6 @@ results = client.result = client.vector_search(
 
 # ------------- Display Results ------------- #
 
-IGNORE_ITEMS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
-
 app = Flask(__name__)
 book = epub.read_epub("./books/" + BOOK_NAME + ".epub")
 
@@ -79,10 +77,18 @@ def display_book():
     for item in book.get_items():
         index += 1
         if item.get_type() == ebooklib.ITEM_DOCUMENT:
-            if index in IGNORE_ITEMS:
-                continue
             html_content = item.get_content().decode('utf-8')
             soup = bs4.BeautifulSoup(html_content, 'html.parser')
+                
+            # Remove <img> tags
+            for img in soup.find_all('img'):
+                img.decompose()  # Remove the <img> tag
+
+            # Remove <a> tags
+            for a in soup.find_all('a'):
+                a.unwrap()  # Remove the <a> tag but keep the text
+            
+            # Add anchor tags to the paragraphs
             paragraphs = soup.find_all('p')
             for paragraph_index, p in enumerate(paragraphs):
                 chapter_id = index 
