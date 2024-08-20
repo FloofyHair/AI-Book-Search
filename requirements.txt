@@ -1,0 +1,8 @@
+Flask==2.3.7
+torch==2.4.0
+transformers==4.44.0
+ebooklib==0.18
+beautifulsoup4==4.11.2
+python-dotenv==1.0.1
+aerospike==5.0.0
+aerospike-vector-search==1.0.0
