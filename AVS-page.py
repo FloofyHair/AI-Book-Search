@@ -121,5 +121,5 @@ def display_book():
 # ------------- Run the App ------------- #
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
-
-client.close()
+else:
+    client.close()
