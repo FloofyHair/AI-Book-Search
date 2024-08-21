@@ -17,6 +17,7 @@ global NAMESPACE, INDEX_CHAPTERS, INDEX_PARAGRAPHS, VECTOR_KEY, MODEL_DISTANCE_C
 
 NAMESPACE = "test"
 BOOK_NAME = "moby-dick"
+BOOK_TITLE = "Moby Dick"
 
 PARAGRAPH_INDEX = BOOK_NAME + "-paragraphs"
 CHAPTER_INDEX = BOOK_NAME + "-chapters"
@@ -96,8 +97,9 @@ def display_book():
     <!doctype html>
     <html lang="en">
     <head>
+        <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg">  <!-- Updated line -->
         <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}">
-        <title>{{ book_name }}</title>
+        <title>AI Book Search</title>
     </head>
     <body>
     <div class="container">
@@ -116,10 +118,12 @@ def display_book():
     </div>
     </body>
     </html>
-    ''', book_name=BOOK_NAME, content=text_content, results=results_html)
+    ''', content=text_content, results=results_html)
 
 # ------------- Run the App ------------- #
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-else:
-    client.close()
+    try:
+        app.run(host='0.0.0.0', port=5000, debug=True)  # Keep this for local testing
+    finally:
+        client.close()  # Ensure the client is closed on exit
