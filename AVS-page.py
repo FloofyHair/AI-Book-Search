@@ -118,12 +118,3 @@ def display_book():
     </body>
     </html>
     ''', content=text_content, results=results_html)
-
-# ------------- Run the App ------------- #
-
-if __name__ == '__main__':
-    from waitress import serve  # Import Waitress
-    try:
-        serve(app, host='0.0.0.0', port=5000)  # Use Waitress to serve the app
-    finally:
-        client.close()  # Ensure the client is closed on exit
