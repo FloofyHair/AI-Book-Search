@@ -1,6 +1,5 @@
 from aerospike_vector_search import AdminClient, Client, types
 from flask import Flask, request, render_template_string
-from flask_cors import CORS
 import ebooklib
 from ebooklib import epub
 import bs4
@@ -41,7 +40,6 @@ def create_embedding(query):
 # ------------- Display Results ------------- #
 
 app = Flask(__name__)
-CORS(app)
 book = epub.read_epub("./books/" + BOOK_NAME + ".epub")
 
 @app.route('/', methods=['GET', 'POST'])
