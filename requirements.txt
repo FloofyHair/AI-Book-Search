@@ -5,3 +5,4 @@ python-dotenv==1.0.1
 aerospike==15.0.0
 aerospike-vector-search==1.0.0
 requests==2.32.3
+gunicorn==20.1.0
