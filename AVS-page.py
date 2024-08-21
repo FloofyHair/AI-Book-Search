@@ -1,5 +1,6 @@
 from aerospike_vector_search import AdminClient, Client, types
 from flask import Flask, request, render_template_string
+from flask_cors import CORS  # Import CORS for cross-origin requests
 import ebooklib
 from ebooklib import epub
 import bs4
@@ -40,6 +41,7 @@ def create_embedding(query):
 # ------------- Display Results ------------- #
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 book = epub.read_epub("./books/" + BOOK_NAME + ".epub")
 
 @app.route('/', methods=['GET', 'POST'])
@@ -91,11 +93,10 @@ def display_book():
             </section>
         ''' for result in results)
 
-    return render_template_string('''
-    <!doctype html>
+    return render_template_string('''<!doctype html>
     <html lang="en">
     <head>
-        <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg">  <!-- Updated line -->
+        <link rel="icon" href="{{ url_for('static', filename='icon.png') }}" type="image/png">  <!-- Updated line -->
         <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}">
         <title>AI Book Search</title>
     </head>
@@ -121,7 +122,8 @@ def display_book():
 # ------------- Run the App ------------- #
 
 if __name__ == '__main__':
+    from waitress import serve  # Import Waitress
     try:
-        app.run(host='0.0.0.0', port=5000, debug=True)  # Keep this for local testing
+        serve(app, host='0.0.0.0', port=5000)  # Use Waitress to serve the app
     finally:
         client.close()  # Ensure the client is closed on exit
