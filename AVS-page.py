@@ -2,11 +2,9 @@ from aerospike_vector_search import AdminClient, Client, types
 from flask import Flask, request, render_template_string
 import ebooklib
 from ebooklib import epub
-import torch
-import torch.nn.functional as F
-from transformers import AutoModel, AutoTokenizer
 import bs4
-
+import requests
+import json
 from dotenv import load_dotenv
 import os
 
@@ -34,35 +32,9 @@ client = Client(seeds=seeds)
 
 # ------------- Embedding ------------- #
 
-def mean_pooling(model_output, attention_mask):
-    token_embeddings = model_output[0]
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-model = AutoModel.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True, safe_serialization=True)
-model.eval()
-def create_embedding(data, type: str = "document"):
-    doc = f"search_{type}: {data}"
-    encoded_input = tokenizer(doc, padding=True, truncation=True, return_tensors='pt')
-
-    with torch.no_grad():
-        model_output = model(**encoded_input)
-    
-    embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
-    embeddings = F.normalize(embeddings, p=2, dim=1)
-    return embeddings[0].tolist()
-
-# ------------- Query Search ------------- #
-
-query = "The whale's skeleton is described"
-query_vector = create_embedding(query, "query")
-
-results = client.result = client.vector_search(
-    namespace=NAMESPACE,
-    index_name=CHAPTER_INDEX,
-    query=query_vector,
-    limit=20,
-)
+def create_embedding(query):
+    embedding = requests.get(f"https://server.vector-rag.aerospike.com/rest/v1/embed/?q={query}")
+    return embedding.json()
 
 # ------------- Display Results ------------- #
 
@@ -103,7 +75,7 @@ def display_book():
         results = client.vector_search(
             namespace=NAMESPACE,
             index_name=PARAGRAPH_INDEX,
-            query=create_embedding(query, "query"),  # Create embedding for the query
+            query=create_embedding(query),  # Create embedding for the query
             limit=20,
         )
 
