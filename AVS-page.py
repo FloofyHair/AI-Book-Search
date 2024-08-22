@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv()
-HOST = os.getenv("HOST")
-PORT = os.getenv("PORT")
+HOST = os.getenv("AVS_HOST")
+PORT = os.getenv("AVS_PORT")
 
 global NAMESPACE, INDEX_CHAPTERS, INDEX_PARAGRAPHS, VECTOR_KEY, MODEL_DISTANCE_CALC, MODEL_DIM
 
