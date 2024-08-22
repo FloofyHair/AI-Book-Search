@@ -6,6 +6,15 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 import time
+from rich.console import Console
+from rich.progress import Progress, TextColumn, BarColumn
+import warnings
+
+# Suppress UserWarnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=Warning)
+
+console = Console()
 
 from dotenv import load_dotenv
 import os
@@ -13,22 +22,11 @@ import os
 load_dotenv()
 HOST = os.getenv("HOST")
 PORT = os.getenv("PORT")
-
-global NAMESPACE, INDEX_CHAPTERS, INDEX_PARAGRAPHS, VECTOR_KEY, MODEL_DISTANCE_CALC, MODEL_DIM
-
 NAMESPACE = "test"
-BOOK_NAME = "moby-dick"
-
-PARAGRAPH_INDEX = BOOK_NAME + "-paragraphs"
-CHAPTER_INDEX = BOOK_NAME + "-chapters"
 
 VECTOR_KEY = "vector"
 MODEL_DISTANCE_CALC = types.VectorDistanceMetric.COSINE
 MODEL_DIM = 768
-
-BOOK_PATH = "./books/" + BOOK_NAME + ".epub"
-
-start_time = time.time()
 
 seeds = types.HostPort(
     host=HOST,
@@ -38,19 +36,17 @@ seeds = types.HostPort(
 client = Client(seeds=seeds)
 admin_client = AdminClient(seeds=seeds)
 
-# ----------------- Index Creation -----------------
-
 def create_index(INDEX_NAME, SET_NAME):
     index_exists = False
     # Check if the index already exists. If not, create it
     for index in admin_client.index_list():
         if index["id"]["namespace"] == NAMESPACE and index["id"]["name"] == INDEX_NAME:
             index_exists = True
-            print(f"{INDEX_NAME} already exists. Skipping creation")
+            console.print(f"\t{SET_NAME.upper()}:\tIndex '{INDEX_NAME}' already exists. Skipping creation")
             break
 
     if not index_exists:
-        print(f"{INDEX_NAME} does not exist. Creating index")
+        console.print(f"\t[green]{SET_NAME.upper()}:\tCreating index '{INDEX_NAME}'...[/green]")
         
         admin_client.index_create(
         namespace=NAMESPACE,
@@ -61,15 +57,6 @@ def create_index(INDEX_NAME, SET_NAME):
         vector_distance_metric=MODEL_DISTANCE_CALC,
             dimensions=MODEL_DIM,
         )
-
-create_index(CHAPTER_INDEX, "chapters")
-create_index(PARAGRAPH_INDEX, "paragraphs")
-print()
-
-admin_client.close()
-
-
-# ----------------- Vector Insertion -----------------
 
 def mean_pooling(model_output, attention_mask):
     token_embeddings = model_output[0]
@@ -101,6 +88,9 @@ def extract_chapters_from_epub(epub_path):
     # Start the timer for chapter extraction
     start_time = time.time()
     
+    # Get total number of chapters
+    total_chapters = sum(1 for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT)
+
     for item in book.get_items():
         if item.get_type() == ebooklib.ITEM_DOCUMENT:
             html_content = item.get_content().decode('utf-8')
@@ -116,54 +106,50 @@ def extract_chapters_from_epub(epub_path):
                 "chapter-index": index,
                 "chapter-title": title,
                 "text": soup.get_text(),
-                "vector": None  # create_embedding(soup.get_text(), "chapter")
+                "vector": create_embedding(soup.get_text(), "chapter")
             }
             
             chapters.append(chapter)
             soups.append(soup)
             
-            print(f"{index:3}", end=", ")
-            if index % 10 == 9:
-                print(f"\033[92m({time.time()-start_time:.2f}s)\033[0m")
-                
+            console.print(f"\tCHAPTERS:\tEmbedding [green]chapter {index + 1}[/green] [magenta]({index + 1}/{total_chapters})[/magenta]", end='\r', highlight=False)    
             index += 1
-    
-    print()
+        
+    console.print()
     return chapters, soups
 
-def extract_paragraphs_from_chapter(chapter, soup):
-    yellow_color = "\033[93m"
-    reset_color = "\033[0m"
-    print(f"{yellow_color}CHAPTER {chapter['chapter-index']}:{reset_color}")
+def extract_paragraphs_from_chapters(chapters, soups):
+    all_paragraphs = []
+    total_paragraphs = sum(len(soup.find_all('p')) for soup in soups)
+    total_index = 0
     
-    chapter_index = chapter["chapter-index"]
-    chapter_title = chapter["chapter-title"]
-    chapter_html = soup
+    for chapter in chapters:
+        chapter_index = chapter["chapter-index"]
+        chapter_title = chapter["chapter-title"]
+        chapter_html = soups[chapter_index]
     
-    paragraphs = []
+        chapter_paragraphs = []
         
-    index = 0
-    for p in chapter_html.find_all('p'):
-        paragraph = {
-            "chapter-index": chapter_index,
-            "chapter-title": chapter_title,
-            "paragraph-index": index,
-            "text": p.get_text(),
-            "vector": create_embedding(p.get_text(), "paragraph")
-        }
-        paragraphs.append(paragraph)
-        
-        print(f"{chapter_index*10000+index:5}", end=", ")
-        if index % 10 == 9:
-            print(f"\033[92m({time.time()-start_time:.2f}s)\033[0m")
-        
-        index += 1
-    
-    if index % 10 != 0:
-        print(f"\033[92m({time.time()-start_time:.2f}s)\033[0m")
-    
-    return paragraphs
+        index = 0
+        for p in chapter_html.find_all('p'):
+            paragraph = {
+                "chapter-index": chapter_index,
+                "chapter-title": chapter_title,
+                "paragraph-index": index,
+                "text": p.get_text(),
+                "vector": create_embedding(p.get_text(), "paragraph")
+            }
+            chapter_paragraphs.append(paragraph)
+            
+            total_index += 1
+            console.print(f"\tPARAGRAPHS:\tEmbedding [green]paragraph {total_index}[/green] [magenta]({total_index}/{total_paragraphs})[/magenta]", end='\r', highlight=False)    
 
+            
+            index += 1
+            
+        all_paragraphs.extend(chapter_paragraphs)
+    console.print()
+    return all_paragraphs
 
 def insert_record(SET_NAME, KEY, RECORD_DATA):
     client.upsert(
@@ -179,57 +165,7 @@ def delete_record(SET_NAME, KEY):
         set_name=SET_NAME,
         key=KEY,
     )
-
-vector = [] # create dummy 384 dimension vector
-for i in range(MODEL_DIM):
-    vector.append(0.0)
-
-# INSERT CHAPTERS
-
-print("Embedding chapters...")
-chapters, soups = extract_chapters_from_epub(BOOK_PATH)
-print("Chapters embedded")
-
-print()
-
-# print("Inserting chapters...")
-# print("KEYS: ")
-# i = 0
-# for chapter in chapters:
-#     insert_record("chapters", chapter["chapter-index"], chapter)
-#     print(f"{chapter['chapter-index']:3}", end=", ")
-#     if i % 10 == 9:
-#         print()
-#     i += 1
-# print()
-# print("Chapters inserted")
-
-# INSERT PARAGRAPHS
-
-print("Embedding and inserting paragraphs...")
-for chapter in chapters:
-    paragraphs = extract_paragraphs_from_chapter(chapter, soups[chapter["chapter-index"]])
-    for paragraph in paragraphs:
-        insert_record("paragraphs", paragraph["chapter-index"]*10000+paragraph["paragraph-index"], paragraph)
-print("Paragraphs embedded and inserted")
-
-
-
-
-
-
-# ----------------- Wait for Indexing -----------------
-
-print()
-print("Waiting for indexing to complete...")
-#client.wait_for_index_completion(namespace=NAMESPACE, name=CHAPTER_INDEX)
-print("CHAPTERS indexing complete")
-#client.wait_for_index_completion(namespace=NAMESPACE, name=PARAGRAPH_INDEX)
-#print("PARAGRAPHS indexing complete")
-print()
-
-# ----------------- Read Index -----------------
-
+    
 def check_if_indexed(INDEX_NAME, SET_NAME, KEY):
     return client.is_indexed(
         namespace=NAMESPACE,
@@ -238,53 +174,103 @@ def check_if_indexed(INDEX_NAME, SET_NAME, KEY):
         set_name=SET_NAME
     )
 
-# print("CHAPTERS:")
-# for i in range(len(chapters)):
-#     print(f"{chapters[i]['chapter-index']:3}", end=": ")
-#     print(check_if_indexed(CHAPTER_INDEX, "chapters", chapters[i]["chapter-index"]), end=", ")
-#     if i % 10 == 9:
-#         print()
+def upload_book(BOOK_NAME, BOOK_PATH):
+    start_time = time.time()
+    
+    # Step 1: Create Indexes
+    current_time = time.time() - start_time
+    console.print(f"[green]Creating Indexes ({current_time:.2f}s)[/green]", highlight=False)
+    CHAPTER_INDEX = BOOK_NAME + "-chapters"
+    PARAGRAPH_INDEX = BOOK_NAME + "-paragraphs"
+    
+    create_index(CHAPTER_INDEX, "chapters")
+    create_index(PARAGRAPH_INDEX, "paragraphs")
+    
+    # Step 2: Embedding
+    current_time = time.time() - start_time
+    console.print(f"[green]Embedding({current_time:.2f}s)[/green]", highlight=False)
+    
+    chapters, soups = extract_chapters_from_epub(BOOK_PATH)
+    paragraphs = extract_paragraphs_from_chapters(chapters, soups)
+    
+    # Step 3: Insert Records
+    current_time = time.time() - start_time
+    console.print(f"[green]Inserting Records ({current_time:.2f}s)[/green]", highlight=False)
+    for chapter in chapters:
+        console.print(f"\tCHAPTERS:\tInserting [green]chapter {chapter['chapter-index']+1}[/green] [magenta]({chapter['chapter-index']+1}/{len(chapters)})[/magenta]", highlight=False, end="\r")
+        insert_record("chapters", chapter["chapter-index"], chapter)
+    console.print()
+    total_index = 0
+    for paragraph in paragraphs:
+        console.print(f"\tPARAGRAPHS:\tInserting [green]paragraph {total_index+1}[/green] [magenta]({total_index+1}/{len(paragraphs)})[/magenta]", highlight=False, end="\r")
+        insert_record("paragraphs", paragraph["chapter-index"]*10000+paragraph["paragraph-index"], paragraph)
+        total_index += 1
+    console.print()
+    
+    # Step 4: Wait for Indexing
+    current_time = time.time() - start_time
+    console.print(f"[green]Waiting for Indexing ({current_time:.2f}s)[/green]", highlight=False)
+    
+    console.print(f"\tCHAPTERS:\tWaiting for [green]'{CHAPTER_INDEX}'[/green]", highlight=False, end="\r")
+    client.wait_for_index_completion(namespace=NAMESPACE, name=CHAPTER_INDEX)
+    console.print(f"\tCHAPTERS:\t[green]'{CHAPTER_INDEX}'[/green] Indexed          ")
+    console.print(f"\tPARAGRAPHS:\tWaiting for [green]'{PARAGRAPH_INDEX}'[/green]", highlight=False, end="\r")
+    client.wait_for_index_completion(namespace=NAMESPACE, name=PARAGRAPH_INDEX)
+    console.print(f"\tPARAGRAPHS:\t[green]'{PARAGRAPH_INDEX}'[/green] Indexed          ")
+    
+    # Step 5: Verify Records
+    current_time = time.time() - start_time
+    console.print(f"[green]Verifying Records ({current_time:.2f}s)[/green]", highlight=False)
+    
+    failed_chapters = []
+    for chapter in chapters:
+        console.print(f"\tCHAPTERS:\tChecking if [green]{chapter['chapter-index']+1}[/green] is indexed [magenta]({chapter['chapter-index']+1}/{len(chapters)})[/magenta]:\t", highlight=False, end="")
+        indexed = check_if_indexed(CHAPTER_INDEX, "chapters", chapter["chapter-index"])
+        if indexed:
+            console.print(f"[green]True[/green]", highlight=False, end="\r")
+        else:
+            console.print(f"[red]False[/red]", highlight=False, end="\r")
+            failed_chapters.append(chapter["chapter-index"])
+    console.print()
+    
+    failed_paragraphs = []
+    total_index = 1
+    for paragraph in paragraphs:
+        console.print(f"\tPARAGRAPHS:\tChecking if [green]{paragraph['chapter-index']*10000+paragraph['paragraph-index']+1}[/green] is indexed [magenta]({total_index}/{len(paragraphs)})[/magenta]:\t", highlight=False, end="")
+        indexed = check_if_indexed(PARAGRAPH_INDEX, "paragraphs", paragraph["chapter-index"]*10000+paragraph["paragraph-index"])
+        if indexed:
+            console.print(f"[green]True[/green]", highlight=False, end="\r")
+        else:
+            console.print(f"[red]False[/red]", highlight=False, end="\r")
+            failed_paragraphs.append(paragraph["chapter-index"]*10000+paragraph["paragraph-index"])
+        total_index += 1
+    console.print()
+    
+    if len(failed_chapters) > 0:
+        console.print(f"[red]Failed to index {len(failed_chapters)} chapters[/red]")
+    else:
+        console.print(f"[green]All chapters indexed![/green]")
+    if len(failed_paragraphs) > 0:
+        console.print(f"[red]Failed to index {len(failed_paragraphs)} paragraphs[/red]")
+    else:
+        console.print(f"[green]All paragraphs indexed![/green]")
 
-# ----------------- Search -----------------
 
-def print_results(results):
-    for result in results:
-        keys = result.key
-        fields = result.fields
-        
-        vector = [round(v, 2) for v in fields["vector"][:2]]
-        chapter_index = str(fields["chapter-index"])
-        chapter_title = str(fields["chapter-title"][:12])
-        text = str(fields["text"][fields["text"].find(".\n")+2:fields["text"].find(".\n")+60])+"..."
-        text = text.replace("\n", " ")
-        
-        print(keys, end="\t")
-        print("->", end="\t")
-        print(chapter_index, end="\t")
-        print(chapter_title, end="\t")
-        print(text, end="\t")
-        print(vector)
 
-print("\n-------------------------------------------------------------- Search --------------------------------------------------------------")
+for index, book in enumerate(os.listdir("./books")):
+    total_books = len(os.listdir("./books"))
+    
+    BOOK_PATH = f"./books/{book}"
+    BOOK_NAME = book.replace(".epub", "")
+    
+    book_title = book.replace(".epub", "").replace("-", " ").title()
+    console.print(f"\n[magenta]Uploading '{book_title}' ({index + 1}/{total_books})[/magenta]", highlight=False)
 
-results = client.result = client.vector_search(
-    namespace=NAMESPACE,
-    index_name=CHAPTER_INDEX,
-    query=vector,
-    limit=144,
-)
-#print("CHAPTERS:")
-#print_results(results)
-
-print()
-
-results = client.result = client.vector_search(
-    namespace=NAMESPACE,
-    index_name=PARAGRAPH_INDEX,
-    query=vector,
-    limit=144,
-)
-print("PARAGRAPHS:")
-print_results(results)
-
+    
+    try:
+        upload_book(BOOK_NAME, BOOK_PATH)
+    except Exception as e:
+        console.print(f"[red]Error uploading '{book_title}': {e}[/red]", highlight=False)
+    
+admin_client.close()
 client.close()
